@@ -12,70 +12,139 @@
 //!     - Colon       - ':'
 //!     - SemiColon   - ';'
 
-use std::str::CharIndices;
-use std::iter::Peekable;
 
 use super::token::{Token, TokenKind};
-pub struct Tokenizer<'a> {
+
+pub struct Lexer<'a> {
     text: &'a str,
-    chars: Peekable<CharIndices<'a>>,
-    line: usize,
-    col: usize,
+    pos: usize
 }
 
-impl<'a> Tokenizer<'a> {
+impl<'a> Lexer<'a> {
+    const LITERALS: &'static [(&'static str, TokenKind)] = &[
+        ("(", TokenKind::LParen),
+        (")", TokenKind::RParen),
+        ("[", TokenKind::LBracket),
+        ("]", TokenKind::RBracket),
+        ("{", TokenKind::LBrace),
+        ("}", TokenKind::RBrace),
+        ("|", TokenKind::Pipe),
+        (":", TokenKind::Colon),
+        (";", TokenKind::SemiColon)
+    ];
+
     pub fn new(text: &'a str) -> Self {
         Self {
             text,
-            chars: text.char_indices().peekable(),
-            line: 1,
-            col: 1,
+            pos: 0
         }
     }
-    
-    fn cur_char(&self) -> Option<&str> {
-        self.chars.peek().map(|&(pos, chr)| {
-            self.text.get(pos..pos+chr.len_utf8())
-        })
-        .flatten()
+
+    fn consume_next(&mut self) -> Option<&'a str> {
+        let start = self.pos;
+        let next = self.text.chars().next()?;
+        self.pos += next.len_utf8();
+        Some(&self.text[start..self.pos])
     }
 
-    fn next_char(&mut self) -> Option<&str> {
-        self.chars.next().map(|(pos, chr)| {
-            self.text.get(pos..pos+chr.len_utf8())
-        })
-        .flatten()
-    }
-    
-    fn next_if(&mut self, pred: impl FnOnce(char) -> bool) -> Option<&str> {
-        let chr = self.cur_char().map(|s| s.chars().next()).flatten()?;
-        if pred(chr) {
-            self.next_char()
+    fn consume_str(&mut self, s: &str) -> Option<&'a str> {
+        let start = self.pos;
+        if self.text[self.pos..].starts_with(s) {
+            self.pos += s.len();
+            Some(&self.text[start..self.pos])
         } else {
             None
         }
     }
 
-    fn next_while(&mut self, pred: impl FnMut(char) -> bool) -> &str {
-        let start = self.chars.peek().map_or(self.text.len(), |&(pos, _)| pos);
-        let size = 0;
-        while let Some(len) = self.next_if(pred).map(|s| s.len()) {
-            size += len;
+    fn consume_if(&mut self, f: impl FnOnce(char) -> bool) -> Option<&'a str> {
+        let start = self.pos;
+        let next = self.text.chars().next()?;
+        if f(next) {
+            self.pos += next.len_utf8();
+            Some(&self.text[start..self.pos])
+        } else {
+            None
         }
+    }
 
-        self.text.get(start..start+size).unwrap()
+    fn consume_while(&mut self, mut f: impl FnMut(char) -> bool) -> Option<&'a str> {
+        let start = self.pos;
+        while let Some(chr) = self.text[self.pos..].chars().next() {
+            if f(chr) {
+                self.pos += chr.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if self.pos != start {
+            Some(&self.text[start..self.pos])
+        } else {
+            None
+        }
+    }
+
+    fn terminal(&mut self) -> Option<String> {
+        let mut id = String::new();
+        self.consume_str("'")?;
+        while let Some(chr) = self.consume_next() {
+            if chr == "'" {
+                return Some(id);
+            } else if chr == "\\" {
+                let chr = self.consume_next()?;
+                match chr {
+                    "t" => id.push('\t'),
+                    "n" => id.push('\n'),
+                    "r" => id.push('\r'),
+                    "0" => id.push('\0'),
+                    "'" => id.push('\''),
+                    "\\" => id.push('\\'),
+                    _ => return None
+                }
+            } else {
+                id.push_str(chr);
+            }
+        }
+        None
     }
 
     fn next_token(&mut self) -> Option<Token<'a>> {
-        let line = self.line;
-        let col = self.col;
-        
-        let chr = self.cur_char().map(|s| s.chars().next()).flatten()?;
-        
+        self.consume_while(char::is_whitespace);
+        if self.pos >= self.text.len() {
+            return None;
+        }
+        let start = self.pos;
+        for (lit, kind) in Self::LITERALS {
+            if let Some(t) = self.consume_str(lit) {
+                return Some(Token {
+                    kind: kind.clone(),
+                    text: t,
+                    pos: start
+                });
+            }
+        }
+
+        if let Some(t) = self.consume_while(|c| c.is_alphanumeric() || c == '_') {
+            return Some(Token {
+                kind: TokenKind::Ident(String::from(t)),
+                text: t,
+                pos: start
+            });
+        }
+
+        if let Some(t) = self.terminal() {
+            return Some(Token {
+                kind: TokenKind::Term(t),
+                text: &self.text[start..self.pos],
+                pos: start
+            });
+        }
+
+        None
     }
 }
 
-impl<'a> Iterator for Tokenizer<'a> {
+impl<'a> Iterator for Lexer<'a> {
     type Item = Token<'a>;
 
     fn next(&mut self) -> Option<Token<'a>> {

@@ -1,6 +1,7 @@
+#[derive(Clone, Debug)]
 pub enum TokenKind {
-    Ident,
-    Term,
+    Ident(String),
+    Term(String),
     LParen,
     RParen,
     LBracket,
@@ -12,9 +13,9 @@ pub enum TokenKind {
     SemiColon,
 }
 
+#[derive(Clone, Debug)]
 pub struct Token<'a> {
     pub kind: TokenKind,
     pub text: &'a str,
-    pub line: usize,
-    pub col: usize,
+    pub pos: usize
 }
