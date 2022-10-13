@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenKind {
     NonTerminal,
     Terminal,
@@ -13,9 +13,9 @@ pub enum TokenKind {
     CloseBrace,
 }
 
-#[derive(Clone, Debug)]
-pub struct Token {
+#[derive(Clone, Debug, PartialEq)]
+pub struct Token<'a> {
     pub kind: TokenKind,
-    pub text: String,
+    pub text: &'a str,
     pub pos: usize,
 }
